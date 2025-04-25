@@ -20,7 +20,6 @@ def get_evaluate_fn(testloader, device):
     
     return evaluate
 
-
 def weighted_average(metrics: List[Tuple[int, Metrics]]) -> Metrics:
     """A function that aggregates metrics from clients."""
     accuracies = [num_samples * m["accuracy"] for num_samples, m in metrics]
@@ -31,8 +30,8 @@ def weighted_average(metrics: List[Tuple[int, Metrics]]) -> Metrics:
 def on_fit_config(server_round: int) -> Metrics:
     """Adjusts the learning rate based on the server round."""
     lr = 0.01
-    if server_round > 2:
-        lr = 0.005
+    # if server_round > 2:
+    #     lr = 0.005
     return {"lr": lr}
 
 def server_fn(context: Context):
@@ -61,7 +60,6 @@ def server_fn(context: Context):
     config = ServerConfig(num_rounds=num_rounds)
 
     return ServerAppComponents(strategy=strategy, config=config)
-
 
 # Create ServerApp
 app = ServerApp(server_fn=server_fn)

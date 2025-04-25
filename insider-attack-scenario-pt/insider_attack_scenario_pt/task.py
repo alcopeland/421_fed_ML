@@ -10,7 +10,6 @@ from flwr_datasets.partitioner import DirichletPartitioner
 from torch.utils.data import DataLoader
 from torchvision.transforms import Compose, Normalize, ToTensor
 
-
 class Net(nn.Module):
     """Model (simple CNN adapted from 'PyTorch: A 60 Minute Blitz')"""
 
@@ -46,7 +45,7 @@ def get_transforms():
     
     return apply_transforms
 
-def load_data(partition_id: int, num_partitions: int):
+def load_data(partition_id: int, num_partitions: int, seed):
     """Load partition MNIST data."""
     # Only initialize `FederatedDataset` once
     global fds
@@ -58,35 +57,45 @@ def load_data(partition_id: int, num_partitions: int):
         )
     partition = fds.load_partition(partition_id)
     # Divide data on each node: 80% train, 20% test
-    partition_train_test = partition.train_test_split(test_size=0.2, seed=42)
+    partition_train_test = partition.train_test_split(test_size=0.2, seed=seed)
     
-
     partition_train_test = partition_train_test.with_transform(get_transforms())
     trainloader = DataLoader(partition_train_test["train"], batch_size=32, shuffle=True)
     testloader = DataLoader(partition_train_test["test"], batch_size=32)
     return trainloader, testloader
 
+def normal_training_fn(net, trainloader, optimizer, criterion, device, running_loss, epochs):
+    for _ in range(epochs):
+            for batch in trainloader:
+                images = batch["image"]
+                labels = batch["label"]
+                optimizer.zero_grad()
+                loss = criterion(net(images.to(device)), labels.to(device))
+                loss.backward()
+                optimizer.step()
+                running_loss += loss.item()
 
-def train(net, trainloader, epochs, lr, device):
+    avg_trainloss = running_loss / len(trainloader)
+    return avg_trainloss
+
+def train(net, trainloader, epochs, lr, device, malicious, malicious_training_fn):
     """Train the model on the training set."""
     net.to(device)  # move model to GPU if available
     criterion = torch.nn.CrossEntropyLoss().to(device)
     optimizer = torch.optim.Adam(net.parameters(), lr=lr)
     net.train()
     running_loss = 0.0
-    for _ in range(epochs):
-        for batch in trainloader:
-            images = batch["image"]
-            labels = batch["label"]
-            optimizer.zero_grad()
-            loss = criterion(net(images.to(device)), labels.to(device))
-            loss.backward()
-            optimizer.step()
-            running_loss += loss.item()
-
-    avg_trainloss = running_loss / len(trainloader)
+    
+    if malicious:
+        if malicious_training_fn:
+            avg_trainloss = malicious_training_fn(net, trainloader, optimizer, criterion, device, running_loss, epochs)
+        else: 
+            avg_trainloss = normal_training_fn(net, trainloader, optimizer, criterion, device, running_loss, epochs)
+    
+    else:
+        avg_trainloss = normal_training_fn(net, trainloader, optimizer, criterion, device, running_loss, epochs)
+    
     return avg_trainloss
-
 
 def test(net, testloader, device):
     """Validate the model on the test set."""
