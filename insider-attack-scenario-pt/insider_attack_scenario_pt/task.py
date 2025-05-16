@@ -9,6 +9,7 @@ from flwr_datasets import FederatedDataset
 from flwr_datasets.partitioner import DirichletPartitioner
 from torch.utils.data import DataLoader
 from torchvision.transforms import Compose, Normalize, ToTensor
+from sklearn.metrics import precision_score, recall_score, f1_score
 
 class Net(nn.Module):
     """Model (simple CNN adapted from 'PyTorch: A 60 Minute Blitz')"""
@@ -50,7 +51,7 @@ def load_data(partition_id: int, num_partitions: int, seed):
     # Only initialize `FederatedDataset` once
     global fds
     if fds is None:
-        partitioner = DirichletPartitioner(num_partitions=num_partitions, partition_by="label", alpha=1.0, seed=42)
+        partitioner = DirichletPartitioner(num_partitions=num_partitions, partition_by="label", alpha=1.0, seed=seed)
         fds = FederatedDataset(
             dataset="ylecun/mnist",
             partitioners={"train": partitioner},
@@ -102,6 +103,8 @@ def test(net, testloader, device):
     net.to(device)
     criterion = torch.nn.CrossEntropyLoss()
     correct, loss = 0, 0.0
+    all_preds, all_labels = [], []
+
     with torch.no_grad():
         for batch in testloader:
             images = batch["image"].to(device)
@@ -109,10 +112,17 @@ def test(net, testloader, device):
             outputs = net(images)
             loss += criterion(outputs, labels).item()
             correct += (torch.max(outputs.data, 1)[1] == labels).sum().item()
+            all_preds.extend(torch.max(outputs.data, 1)[1].cpu().numpy())
+            all_labels.extend(labels.cpu().numpy())
+
     accuracy = correct / len(testloader.dataset)
     loss = loss / len(testloader)
-    return loss, accuracy
 
+    precision = precision_score(all_labels, all_preds, average='macro', zero_division=0)
+    recall = recall_score(all_labels, all_preds, average='macro', zero_division=0)
+    f1 = f1_score(all_labels, all_preds, average='macro', zero_division=0)
+
+    return loss, accuracy, precision, recall, f1
 
 def get_weights(net):
     return [val.cpu().numpy() for _, val in net.state_dict().items()]

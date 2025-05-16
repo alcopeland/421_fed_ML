@@ -41,8 +41,8 @@ class FlowerClient(NumPyClient):
 
     def evaluate(self, parameters, config):
         set_weights(self.net, parameters)
-        loss, accuracy = test(self.net, self.valloader, self.device)
-        return loss, len(self.valloader.dataset), {"accuracy": accuracy}
+        loss, accuracy, precision, recall, f1 = test(self.net, self.valloader, self.device)
+        return loss, len(self.valloader.dataset), {"accuracy": accuracy, "precision": precision, "recall": recall, "f1": f1}
 
 
 def client_fn(context: Context):
@@ -53,11 +53,12 @@ def client_fn(context: Context):
     seed = context.run_config["seed"]
     trainloader, valloader = load_data(partition_id, num_partitions, seed)
     local_epochs = context.run_config["local-epochs"]
-    num_insiders = context.run_config["num-insiders"]
+    insider_ratio = context.run_config["insider-ratio"]
     attack_type = context.run_config["attack-type"]
+    num_insiders = int(num_partitions * insider_ratio)
 
     random.seed(seed)
-    insiders = random.sample(range(1,101), num_insiders)
+    insiders = random.sample(range(1,num_partitions+1), num_insiders)
 
     malicious_training_fn = get_maclicious_training_fn(attack_type)
 
@@ -98,10 +99,26 @@ def get_maclicious_training_fn(attack_type):
             avg_trainloss = running_loss / len(trainloader)
             return avg_trainloss
 
-    elif attack_type == "free-riding":
+    elif attack_type == "fixed-free-riding":
         def malicious_training_fn(net, trainloader, optimizer, criterion, device, running_loss, epochs):
             return 0.01
     
+    # elif attack_type == "backdoor":
+        # modify a fraction of training images and change label to a specific label
+
+    # elif attack_type == "gradient-scaling":
+        # multiply model parameters by a factor
+
+    # elif attack_type == "targeted-model-poisoning":
+        # focus poisoning on a specific class, e.g. 1 -> 7
+    
+    # elif attack_type == "random-free-riding":
+        # return randomly generated net/weights/loss?
+        # for name, param in net.named_parameters():
+
+    # elif attack_type == "fake-update":
+        # return the same model as the previous round?
+
     else:
         malicious_training_fn = None
 

@@ -15,16 +15,19 @@ def get_evaluate_fn(testloader, device):
         net = Net()
         set_weights(net, parameters_ndarray)
         net.to(device)
-        loss, accuracy = test(net, testloader, device)
-        return loss, {"centralised_accuracy": accuracy}
-    
+        loss, accuracy, precision, recall, f1 = test(net, testloader, device)
+        return loss, {"accuracy": accuracy, "precision": precision, "recall": recall, "f1": f1}
+
     return evaluate
 
 def weighted_average(metrics: List[Tuple[int, Metrics]]) -> Metrics:
     """A function that aggregates metrics from clients."""
     accuracies = [num_samples * m["accuracy"] for num_samples, m in metrics]
+    precisions = [num_samples * m["precision"] for num_samples, m in metrics]
+    recalls = [num_samples * m["recall"] for num_samples, m in metrics]
+    f1s = [num_samples * m["f1"] for num_samples, m in metrics]
     total_samples = sum(num_samples for num_samples, _ in metrics)
-    return {"accuracy": sum(accuracies) / total_samples}
+    return {"accuracy": sum(accuracies) / total_samples, "precision": sum(precisions) / total_samples, "recall": sum(recalls) / total_samples, "f1": sum(f1s) / total_samples}
 
 # Might be able to use this to simulate malicious clients, or use a malicious weighted average function
 def on_fit_config(server_round: int) -> Metrics:
