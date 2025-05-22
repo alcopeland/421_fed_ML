@@ -60,20 +60,22 @@ def client_fn(context: Context):
     random.seed(seed)
     insiders = random.sample(range(1,num_partitions+1), num_insiders)
 
-    malicious_training_fn = get_maclicious_training_fn(attack_type)
+    malicious_training_fn = get_malicious_training_fn(attack_type)
 
     # Return Client instance
     return FlowerClient(net, trainloader, valloader, local_epochs, partition_id, num_insiders, insiders, malicious_training_fn).to_client()
 
-def get_maclicious_training_fn(attack_type):
-    
-    if attack_type == "label-flipping":
+def get_malicious_training_fn(attack_type):
+
+    if attack_type == "general-label-flipping":
         def malicious_training_fn(net, trainloader, optimizer, criterion, device, running_loss, epochs):
             for _ in range(epochs):
                 for batch in trainloader:
                     images = batch["image"]
                     labels = batch["label"]
+
                     labels = (labels + 1) % 10  # Flip labels
+
                     optimizer.zero_grad()
                     loss = criterion(net(images.to(device)), labels.to(device))
                     loss.backward()
@@ -83,13 +85,54 @@ def get_maclicious_training_fn(attack_type):
             avg_trainloss = running_loss / len(trainloader)
             return avg_trainloss
 
-    elif attack_type == "model-poisoning":
+    elif attack_type == "targeted-label-flipping":
+        # flip labels of a single class e.g. 1 -> 7
         def malicious_training_fn(net, trainloader, optimizer, criterion, device, running_loss, epochs):
             for _ in range(epochs):
                 for batch in trainloader:
                     images = batch["image"]
                     labels = batch["label"]
+
+                    labels = torch.where(labels == 1, 7, labels) # Flip labels
+
+                    optimizer.zero_grad()
+                    loss = criterion(net(images.to(device)), labels.to(device))
+                    loss.backward()
+                    optimizer.step()
+                    running_loss += loss.item()
+
+            avg_trainloss = running_loss / len(trainloader)
+            return avg_trainloss
+
+    elif attack_type == "general-model-poisoning":
+        def malicious_training_fn(net, trainloader, optimizer, criterion, device, running_loss, epochs):
+            for _ in range(epochs):
+                for batch in trainloader:
+                    images = batch["image"]
+                    labels = batch["label"]
+
                     images += torch.randn_like(images) * 0.5  # Add noise to images
+
+                    optimizer.zero_grad()
+                    loss = criterion(net(images.to(device)), labels.to(device))
+                    loss.backward()
+                    optimizer.step()
+                    running_loss += loss.item()
+
+            avg_trainloss = running_loss / len(trainloader)
+            return avg_trainloss
+
+    elif attack_type == "targeted-model-poisoning":
+        def malicious_training_fn(net, trainloader, optimizer, criterion, device, running_loss, epochs):
+            for _ in range(epochs):
+                for batch in trainloader:
+                    images = batch["image"]
+                    labels = batch["label"]
+
+                    for i in range(images.shape[0]):
+                        if labels[i] == 1:
+                            images[i] += torch.randn_like(images[i]) * 0.5  # Add noise to images
+
                     optimizer.zero_grad()
                     loss = criterion(net(images.to(device)), labels.to(device))
                     loss.backward()
@@ -103,22 +146,55 @@ def get_maclicious_training_fn(attack_type):
         def malicious_training_fn(net, trainloader, optimizer, criterion, device, running_loss, epochs):
             return 0.01
     
-    # elif attack_type == "backdoor":
+    elif attack_type == "random-free-riding":
+        def malicious_training_fn(net, trainloader, optimizer, criterion, device, running_loss, epochs):
+            with torch.no_grad():
+                for name, param in net.named_parameters():
+                    param.data = torch.randn_like(param.data) # * 0.1
+            return 0.01
+
+    elif attack_type == "backdoor":
         # modify a fraction of training images and change label to a specific label
+        def malicious_training_fn(net, trainloader, optimizer, criterion, device, running_loss, epochs):
+            for _ in range(epochs):
+                for batch in trainloader:
+                    images = batch["image"]
+                    labels = batch["label"]
 
-    # elif attack_type == "gradient-scaling":
+                    # Add a backdoor trigger to a fraction of the images
+                    if random.random() < 0.2:
+                        for i in range(images.shape[0]):
+                            images[i, 0:5, 0:5] = 1.0
+                        labels = torch.full_like(labels, 7)  # Change label to a specific class
+
+                    optimizer.zero_grad()
+                    loss = criterion(net(images.to(device)), labels.to(device))
+                    loss.backward()
+                    optimizer.step()
+                    running_loss += loss.item()
+
+            avg_trainloss = running_loss / len(trainloader)
+            return avg_trainloss
+
+    elif attack_type == "gradient-scaling":
         # multiply model parameters by a factor
+        def malicious_training_fn(net, trainloader, optimizer, criterion, device, running_loss, epochs):
+            for _ in range(epochs):
+                for batch in trainloader:
+                    images = batch["image"]
+                    labels = batch["label"]
+                    optimizer.zero_grad()
+                    loss = criterion(net(images.to(device)), labels.to(device))
+                    loss.backward()
+                    optimizer.step()
+                    running_loss += loss.item()
 
-    # elif attack_type == "targeted-model-poisoning":
-        # focus poisoning on a specific class, e.g. 1 -> 7
+            for name, param in net.named_parameters():
+                param.data *= 10  # Scale gradients
+
+            avg_trainloss = running_loss / len(trainloader)
+            return avg_trainloss
     
-    # elif attack_type == "random-free-riding":
-        # return randomly generated net/weights/loss?
-        # for name, param in net.named_parameters():
-
-    # elif attack_type == "fake-update":
-        # return the same model as the previous round?
-
     else:
         malicious_training_fn = None
 
