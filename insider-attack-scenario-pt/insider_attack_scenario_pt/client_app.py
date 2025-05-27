@@ -111,7 +111,8 @@ def get_malicious_training_fn(attack_type):
                     images = batch["image"]
                     labels = batch["label"]
 
-                    images += torch.randn_like(images) * 0.5  # Add noise to images
+                    images += torch.randn_like(images) * 0.2  # Add noise to images
+                    images = torch.clamp(images, 0, 1)  # Ensure images are in valid range
 
                     optimizer.zero_grad()
                     loss = criterion(net(images.to(device)), labels.to(device))
@@ -131,7 +132,7 @@ def get_malicious_training_fn(attack_type):
 
                     for i in range(images.shape[0]):
                         if labels[i] == 1:
-                            images[i] += torch.randn_like(images[i]) * 0.5  # Add noise to images
+                            images[i] += torch.randn_like(images[i]) * 0.7  # Add noise to images
 
                     optimizer.zero_grad()
                     loss = criterion(net(images.to(device)), labels.to(device))
@@ -162,7 +163,7 @@ def get_malicious_training_fn(attack_type):
                     labels = batch["label"]
 
                     # Add a backdoor trigger to a fraction of the images
-                    if random.random() < 0.2:
+                    if random.random() < 0.7:
                         for i in range(images.shape[0]):
                             images[i, 0:5, 0:5] = 1.0
                         labels = torch.full_like(labels, 7)  # Change label to a specific class
@@ -176,7 +177,7 @@ def get_malicious_training_fn(attack_type):
             avg_trainloss = running_loss / len(trainloader)
             return avg_trainloss
 
-    elif attack_type == "gradient-scaling":
+    elif attack_type == "parameter-scaling":
         # multiply model parameters by a factor
         def malicious_training_fn(net, trainloader, optimizer, criterion, device, running_loss, epochs):
             for _ in range(epochs):
@@ -190,7 +191,7 @@ def get_malicious_training_fn(attack_type):
                     running_loss += loss.item()
 
             for name, param in net.named_parameters():
-                param.data *= 10  # Scale gradients
+                param.data *= 10  # Scale parameters
 
             avg_trainloss = running_loss / len(trainloader)
             return avg_trainloss
